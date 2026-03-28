@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useMemo, useState, useEffect, useCallback } from "react";
+import { useRef, useMemo, useState, useEffect } from "react";
 import { useFrame, useThree, createPortal } from "@react-three/fiber";
 import { useFBO } from "@react-three/drei";
 import * as THREE from "three";
@@ -156,7 +156,7 @@ function drawCards(
 }
 
 export default function RippleEffect() {
-  const { viewport, gl, size } = useThree();
+  const { gl, size } = useThree();
 
   const bgCanvas = useMemo(() => {
     const canvas = document.createElement("canvas");
@@ -176,22 +176,35 @@ export default function RippleEffect() {
 
   // Load card images and redraw
   useEffect(() => {
+    let cancelled = false;
     const srcs = ["/1.png", "/2.png", "/3.png"];
     Promise.all(
       srcs.map(
         (src) =>
           new Promise<HTMLImageElement>((resolve) => {
             const img = new Image();
+            img.crossOrigin = "anonymous";
             img.onload = () => resolve(img);
             img.onerror = () => resolve(img);
             img.src = src;
           })
       )
     ).then((images) => {
+      if (cancelled) return;
       drawCards(bgCanvas, bgCanvas.width, bgCanvas.height, images);
       backgroundTexture.needsUpdate = true;
     });
+    return () => {
+      cancelled = true;
+    };
   }, [bgCanvas, backgroundTexture]);
+
+  // Dispose texture on unmount
+  useEffect(() => {
+    return () => {
+      backgroundTexture.dispose();
+    };
+  }, [backgroundTexture]);
 
   const fboA = useFBO(size.width, size.height, { type: THREE.HalfFloatType });
   const fboB = useFBO(size.width, size.height, { type: THREE.HalfFloatType });
@@ -207,6 +220,25 @@ export default function RippleEffect() {
   const frameId = useRef(0);
   const pointerState = useRef(new THREE.Vector3(0, 0, 0));
   const pointerActive = useRef(false);
+
+  const simUniforms = useMemo(
+    () => ({
+      uTexture: { value: null as THREE.Texture | null },
+      uResolution: { value: new THREE.Vector2() },
+      uMouse: { value: new THREE.Vector3() },
+      uFrame: { value: 0 },
+    }),
+    []
+  );
+
+  const renderUniforms = useMemo(
+    () => ({
+      uTexture: { value: null as THREE.Texture | null },
+      uBackground: { value: backgroundTexture },
+      uResolution: { value: new THREE.Vector2() },
+    }),
+    [backgroundTexture]
+  );
 
   // Native DOM pointer tracking for accuracy
   useEffect(() => {
@@ -263,7 +295,9 @@ export default function RippleEffect() {
       size.height
     );
 
-    frameId.current++;
+    // Prevent integer overflow on long sessions; reset after first frame
+    if (frameId.current > 1_000_000) frameId.current = 2;
+    else frameId.current++;
   });
 
   return (
@@ -275,12 +309,7 @@ export default function RippleEffect() {
             ref={simMatRef}
             vertexShader={vertexShader}
             fragmentShader={simulationFragmentShader}
-            uniforms={{
-              uTexture: { value: null },
-              uResolution: { value: new THREE.Vector2() },
-              uMouse: { value: new THREE.Vector3() },
-              uFrame: { value: 0 },
-            }}
+            uniforms={simUniforms}
           />
         </mesh>,
         scene
@@ -292,11 +321,7 @@ export default function RippleEffect() {
           ref={renderMatRef}
           vertexShader={vertexShader}
           fragmentShader={renderFragmentShader}
-          uniforms={{
-            uTexture: { value: null },
-            uBackground: { value: backgroundTexture },
-            uResolution: { value: new THREE.Vector2() },
-          }}
+          uniforms={renderUniforms}
         />
       </mesh>
     </>
