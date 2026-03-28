@@ -1,13 +1,11 @@
 "use client";
 
-import { useRef, useMemo, useState, useEffect } from "react";
+import { useRef, useMemo, useState, useEffect, useCallback } from "react";
 import { useFrame, useThree, createPortal } from "@react-three/fiber";
 import { useFBO } from "@react-three/drei";
 import * as THREE from "three";
 
-const CARD_IMAGES = ["/1.png", "/2.png", "/3.png"];
-
-const vertexShader = /* glsl */ `
+const vertexShader = `
   varying vec2 vUv;
   void main() {
     vUv = uv;
@@ -15,8 +13,7 @@ const vertexShader = /* glsl */ `
   }
 `;
 
-const simulationFragmentShader = /* glsl */ `
-  precision highp float;
+const simulationFragmentShader = `
   varying vec2 vUv;
   uniform sampler2D uTexture;
   uniform vec2 uResolution;
@@ -24,8 +21,6 @@ const simulationFragmentShader = /* glsl */ `
   uniform int uFrame;
 
   const float delta = 1.0;
-  const float RIPPLE_RADIUS = 60.0;
-  const float RIPPLE_STRENGTH = 1.5;
 
   void main() {
     if (uFrame == 0) {
@@ -58,8 +53,8 @@ const simulationFragmentShader = /* glsl */ `
 
     if (uMouse.z > 0.0) {
       float dist = distance(fragCoord, uMouse.xy);
-      if (dist <= RIPPLE_RADIUS) {
-        pressure += RIPPLE_STRENGTH * (1.0 - dist / RIPPLE_RADIUS);
+      if (dist <= 60.0) {
+        pressure += 1.5 * (1.0 - dist / 60.0);
       }
     }
 
@@ -67,11 +62,11 @@ const simulationFragmentShader = /* glsl */ `
   }
 `;
 
-const renderFragmentShader = /* glsl */ `
-  precision highp float;
+const renderFragmentShader = `
   varying vec2 vUv;
   uniform sampler2D uTexture;
   uniform sampler2D uBackground;
+  uniform vec2 uResolution;
 
   void main() {
     vec4 data = texture2D(uTexture, vUv);
@@ -88,25 +83,19 @@ const renderFragmentShader = /* glsl */ `
   }
 `;
 
-function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error(`Failed to load image: ${src}`));
-    img.src = src;
-  });
-}
-
 function drawCards(
   canvas: HTMLCanvasElement,
+  width: number,
+  height: number,
   images: HTMLImageElement[]
 ) {
-  const { width, height } = canvas;
   const ctx = canvas.getContext("2d")!;
 
+  // Black background
   ctx.fillStyle = "#000000";
   ctx.fillRect(0, 0, width, height);
 
+  // Card layout
   const cardWidth = Math.round(width * 0.22);
   const cardHeight = Math.round(height * 0.55);
   const gap = Math.round(width * 0.03);
@@ -119,21 +108,25 @@ function drawCards(
     const x = startX + i * (cardWidth + gap);
     const y = startY;
 
+    // Card shadow
     ctx.shadowColor = "rgba(255, 255, 255, 0.08)";
     ctx.shadowBlur = 30;
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = 4;
 
+    // White card
     ctx.fillStyle = "#ffffff";
     ctx.beginPath();
     ctx.roundRect(x, y, cardWidth, cardHeight, radius);
     ctx.fill();
 
+    // Reset shadow
     ctx.shadowColor = "transparent";
     ctx.shadowBlur = 0;
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = 0;
 
+    // Draw image covering the card with rounded corners
     const img = images[i];
     if (img) {
       ctx.save();
@@ -141,9 +134,10 @@ function drawCards(
       ctx.roundRect(x, y, cardWidth, cardHeight, radius);
       ctx.clip();
 
+      // Cover fit
       const imgRatio = img.width / img.height;
       const cardRatio = cardWidth / cardHeight;
-      let drawW: number, drawH: number, drawX: number, drawY: number;
+      let drawW, drawH, drawX, drawY;
       if (imgRatio > cardRatio) {
         drawH = cardHeight;
         drawW = cardHeight * imgRatio;
@@ -162,12 +156,13 @@ function drawCards(
 }
 
 export default function RippleEffect() {
-  const { gl, size } = useThree();
+  const { viewport, gl, size } = useThree();
 
   const bgCanvas = useMemo(() => {
     const canvas = document.createElement("canvas");
     canvas.width = size.width * 2;
     canvas.height = size.height * 2;
+    // Start with black
     const ctx = canvas.getContext("2d")!;
     ctx.fillStyle = "#000000";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -179,29 +174,24 @@ export default function RippleEffect() {
     [bgCanvas]
   );
 
+  // Load card images and redraw
   useEffect(() => {
-    let cancelled = false;
-
-    Promise.all(CARD_IMAGES.map(loadImage))
-      .then((images) => {
-        if (cancelled) return;
-        drawCards(bgCanvas, images);
-        backgroundTexture.needsUpdate = true;
-      })
-      .catch((err) => {
-        if (!cancelled) console.error("Failed to load card images:", err);
-      });
-
-    return () => {
-      cancelled = true;
-    };
+    const srcs = ["/1.png", "/2.png", "/3.png"];
+    Promise.all(
+      srcs.map(
+        (src) =>
+          new Promise<HTMLImageElement>((resolve) => {
+            const img = new Image();
+            img.onload = () => resolve(img);
+            img.onerror = () => resolve(img);
+            img.src = src;
+          })
+      )
+    ).then((images) => {
+      drawCards(bgCanvas, bgCanvas.width, bgCanvas.height, images);
+      backgroundTexture.needsUpdate = true;
+    });
   }, [bgCanvas, backgroundTexture]);
-
-  useEffect(() => {
-    return () => {
-      backgroundTexture.dispose();
-    };
-  }, [backgroundTexture]);
 
   const fboA = useFBO(size.width, size.height, { type: THREE.HalfFloatType });
   const fboB = useFBO(size.width, size.height, { type: THREE.HalfFloatType });
@@ -209,8 +199,8 @@ export default function RippleEffect() {
   const simMatRef = useRef<THREE.ShaderMaterial>(null);
   const renderMatRef = useRef<THREE.ShaderMaterial>(null);
 
-  const [simScene] = useState(() => new THREE.Scene());
-  const [simCamera] = useState(
+  const [scene] = useState(() => new THREE.Scene());
+  const [camera] = useState(
     () => new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)
   );
 
@@ -218,6 +208,7 @@ export default function RippleEffect() {
   const pointerState = useRef(new THREE.Vector3(0, 0, 0));
   const pointerActive = useRef(false);
 
+  // Native DOM pointer tracking for accuracy
   useEffect(() => {
     const canvas = gl.domElement;
 
@@ -253,18 +244,24 @@ export default function RippleEffect() {
 
     pointerState.current.z = pointerActive.current ? 1.0 : 0.0;
     simMat.uniforms.uMouse.value.copy(pointerState.current);
+    // Reset after each frame so ripple only triggers on actual movement
     pointerActive.current = false;
 
+    // Ping pong FBOs
     const sourceFBO = frameId.current % 2 === 0 ? fboA : fboB;
     const destFBO = frameId.current % 2 === 0 ? fboB : fboA;
 
     simMat.uniforms.uTexture.value = sourceFBO.texture;
 
     gl.setRenderTarget(destFBO);
-    gl.render(simScene, simCamera);
+    gl.render(scene, camera);
     gl.setRenderTarget(null);
 
     renderMatRef.current.uniforms.uTexture.value = destFBO.texture;
+    renderMatRef.current.uniforms.uResolution.value.set(
+      size.width,
+      size.height
+    );
 
     frameId.current++;
   });
@@ -286,7 +283,7 @@ export default function RippleEffect() {
             }}
           />
         </mesh>,
-        simScene
+        scene
       )}
 
       <mesh>
@@ -298,6 +295,7 @@ export default function RippleEffect() {
           uniforms={{
             uTexture: { value: null },
             uBackground: { value: backgroundTexture },
+            uResolution: { value: new THREE.Vector2() },
           }}
         />
       </mesh>
