@@ -4,7 +4,6 @@ import { useRef, useMemo, useState, useEffect } from "react";
 import { useFrame, useThree, createPortal } from "@react-three/fiber";
 import { useFBO } from "@react-three/drei";
 import * as THREE from "three";
-import { useControls, button } from "leva";
 import {
   SIM_DELTA,
   WAVE_SPEED_DIVISOR,
@@ -116,11 +115,9 @@ function drawCards(
 ) {
   const ctx = canvas.getContext("2d")!;
 
-  // Black background
   ctx.fillStyle = "#000000";
   ctx.fillRect(0, 0, width, height);
 
-  // Card layout
   const cardWidth = Math.round(width * 0.22);
   const cardHeight = Math.round(height * 0.55);
   const gap = Math.round(width * 0.03);
@@ -133,25 +130,21 @@ function drawCards(
     const x = startX + i * (cardWidth + gap);
     const y = startY;
 
-    // Card shadow
     ctx.shadowColor = "rgba(255, 255, 255, 0.08)";
     ctx.shadowBlur = 30;
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = 4;
 
-    // White card
     ctx.fillStyle = "#ffffff";
     ctx.beginPath();
     ctx.roundRect(x, y, cardWidth, cardHeight, radius);
     ctx.fill();
 
-    // Reset shadow
     ctx.shadowColor = "transparent";
     ctx.shadowBlur = 0;
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = 0;
 
-    // Draw image covering the card with rounded corners
     const img = images[i];
     if (img) {
       ctx.save();
@@ -159,7 +152,6 @@ function drawCards(
       ctx.roundRect(x, y, cardWidth, cardHeight, radius);
       ctx.clip();
 
-      // Cover fit
       const imgRatio = img.width / img.height;
       const cardRatio = cardWidth / cardHeight;
       let drawW, drawH, drawX, drawY;
@@ -183,59 +175,10 @@ function drawCards(
 export default function RippleEffect() {
   const { gl, size } = useThree();
 
-  const sim = useControls("Simulation", {
-    delta: { value: SIM_DELTA, min: 0.1, max: 5.0, step: 0.1 },
-    waveSpeedDivisor: { value: WAVE_SPEED_DIVISOR, min: 1.0, max: 20.0, step: 0.5 },
-    pressureSpring: { value: PRESSURE_SPRING, min: 0.0, max: 0.1, step: 0.001 },
-    velocityDamping: { value: VELOCITY_DAMPING, min: 0.0, max: 0.05, step: 0.001 },
-    pressureDecay: { value: PRESSURE_DECAY, min: 0.9, max: 1.0, step: 0.001 },
-  });
-
-  const mouse = useControls("Mouse", {
-    radius: { value: MOUSE_RADIUS, min: 5, max: 200, step: 1 },
-    strength: { value: MOUSE_STRENGTH, min: 0.1, max: 10.0, step: 0.1 },
-  });
-
-  const render = useControls("Rendering", {
-    refractionStrength: { value: REFRACTION_STRENGTH, min: 0.0, max: 1.0, step: 0.01 },
-    normalFlatness: { value: NORMAL_FLATNESS, min: 0.01, max: 2.0, step: 0.01 },
-    lightX: { value: LIGHT_DIR[0], min: -20, max: 20, step: 0.5 },
-    lightY: { value: LIGHT_DIR[1], min: -20, max: 20, step: 0.5 },
-    lightZ: { value: LIGHT_DIR[2], min: -20, max: 20, step: 0.5 },
-    specularPower: { value: SPECULAR_POWER, min: 1, max: 200, step: 1 },
-    specularIntensity: { value: SPECULAR_INTENSITY, min: 0.0, max: 2.0, step: 0.05 },
-  });
-
-  useControls("Save", {
-    saveAsDefaults: button(() => {
-      fetch("/api/save-constants", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          simDelta: sim.delta,
-          waveSpeedDivisor: sim.waveSpeedDivisor,
-          pressureSpring: sim.pressureSpring,
-          velocityDamping: sim.velocityDamping,
-          pressureDecay: sim.pressureDecay,
-          mouseRadius: mouse.radius,
-          mouseStrength: mouse.strength,
-          refractionStrength: render.refractionStrength,
-          normalFlatness: render.normalFlatness,
-          lightX: render.lightX,
-          lightY: render.lightY,
-          lightZ: render.lightZ,
-          specularPower: render.specularPower,
-          specularIntensity: render.specularIntensity,
-        }),
-      });
-    }),
-  });
-
   const bgCanvas = useMemo(() => {
     const canvas = document.createElement("canvas");
     canvas.width = size.width * 2;
     canvas.height = size.height * 2;
-    // Start with black
     const ctx = canvas.getContext("2d")!;
     ctx.fillStyle = "#000000";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -247,7 +190,6 @@ export default function RippleEffect() {
     [bgCanvas]
   );
 
-  // Load card images and redraw
   useEffect(() => {
     let cancelled = false;
     const srcs = ["/1.png", "/2.png", "/3.png"];
@@ -272,7 +214,6 @@ export default function RippleEffect() {
     };
   }, [bgCanvas, backgroundTexture]);
 
-  // Dispose texture on unmount
   useEffect(() => {
     return () => {
       backgroundTexture.dispose();
@@ -325,7 +266,6 @@ export default function RippleEffect() {
     [backgroundTexture]
   );
 
-  // Native DOM pointer tracking for accuracy
   useEffect(() => {
     const canvas = gl.domElement;
 
@@ -356,31 +296,13 @@ export default function RippleEffect() {
 
     const simMat = simMatRef.current;
 
-    // Push leva values into simulation uniforms
-    simMat.uniforms.uDelta.value = sim.delta;
-    simMat.uniforms.uWaveSpeedDiv.value = sim.waveSpeedDivisor;
-    simMat.uniforms.uPressureSpring.value = sim.pressureSpring;
-    simMat.uniforms.uVelocityDamping.value = sim.velocityDamping;
-    simMat.uniforms.uPressureDecay.value = sim.pressureDecay;
-    simMat.uniforms.uMouseRadius.value = mouse.radius;
-    simMat.uniforms.uMouseStrength.value = mouse.strength;
-
-    // Push leva values into render uniforms
-    renderMatRef.current.uniforms.uRefractionStrength.value = render.refractionStrength;
-    renderMatRef.current.uniforms.uNormalFlatness.value = render.normalFlatness;
-    renderMatRef.current.uniforms.uLightDir.value.set(render.lightX, render.lightY, render.lightZ);
-    renderMatRef.current.uniforms.uSpecularPower.value = render.specularPower;
-    renderMatRef.current.uniforms.uSpecularIntensity.value = render.specularIntensity;
-
     simMat.uniforms.uFrame.value = frameId.current;
     simMat.uniforms.uResolution.value.set(size.width, size.height);
 
     pointerState.current.z = pointerActive.current ? 1.0 : 0.0;
     simMat.uniforms.uMouse.value.copy(pointerState.current);
-    // Reset after each frame so ripple only triggers on actual movement
     pointerActive.current = false;
 
-    // Ping pong FBOs
     const sourceFBO = frameId.current % 2 === 0 ? fboA : fboB;
     const destFBO = frameId.current % 2 === 0 ? fboB : fboA;
 
@@ -391,12 +313,8 @@ export default function RippleEffect() {
     gl.setRenderTarget(null);
 
     renderMatRef.current.uniforms.uTexture.value = destFBO.texture;
-    renderMatRef.current.uniforms.uResolution.value.set(
-      size.width,
-      size.height
-    );
+    renderMatRef.current.uniforms.uResolution.value.set(size.width, size.height);
 
-    // Prevent integer overflow on long sessions; reset after first frame
     if (frameId.current > 1_000_000) frameId.current = 2;
     else frameId.current++;
   });
