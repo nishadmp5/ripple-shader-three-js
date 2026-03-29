@@ -4,7 +4,7 @@ import { useRef, useMemo, useState, useEffect } from "react";
 import { useFrame, useThree, createPortal } from "@react-three/fiber";
 import { useFBO } from "@react-three/drei";
 import * as THREE from "three";
-import { useControls } from "leva";
+import { useControls, button } from "leva";
 import {
   SIM_DELTA,
   WAVE_SPEED_DIVISOR,
@@ -204,6 +204,31 @@ export default function RippleEffect() {
     lightZ: { value: LIGHT_DIR[2], min: -20, max: 20, step: 0.5 },
     specularPower: { value: SPECULAR_POWER, min: 1, max: 200, step: 1 },
     specularIntensity: { value: SPECULAR_INTENSITY, min: 0.0, max: 2.0, step: 0.05 },
+  });
+
+  useControls("Save", {
+    saveAsDefaults: button(() => {
+      fetch("/api/save-constants", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          simDelta: sim.delta,
+          waveSpeedDivisor: sim.waveSpeedDivisor,
+          pressureSpring: sim.pressureSpring,
+          velocityDamping: sim.velocityDamping,
+          pressureDecay: sim.pressureDecay,
+          mouseRadius: mouse.radius,
+          mouseStrength: mouse.strength,
+          refractionStrength: render.refractionStrength,
+          normalFlatness: render.normalFlatness,
+          lightX: render.lightX,
+          lightY: render.lightY,
+          lightZ: render.lightZ,
+          specularPower: render.specularPower,
+          specularIntensity: render.specularIntensity,
+        }),
+      });
+    }),
   });
 
   const bgCanvas = useMemo(() => {
