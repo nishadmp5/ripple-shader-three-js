@@ -17,11 +17,11 @@ export const PRESSURE_SPRING = 0.009;
 
 /** Velocity damping per frame — bleeds kinetic energy.
  *  Higher = ripples die out faster. */
-export const VELOCITY_DAMPING = 0.01;
+export const VELOCITY_DAMPING = 0.004;
 
 /** Pressure decay multiplier applied every frame (< 1.0).
  *  Lower = ripples fade more quickly. */
-export const PRESSURE_DECAY = 0.98;
+export const PRESSURE_DECAY = 0.998;
 
 /**
  * --- Mouse interaction ---
