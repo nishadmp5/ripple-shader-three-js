@@ -4,6 +4,21 @@ import { useRef, useMemo, useState, useEffect } from "react";
 import { useFrame, useThree, createPortal } from "@react-three/fiber";
 import { useFBO } from "@react-three/drei";
 import * as THREE from "three";
+import { useControls } from "leva";
+import {
+  SIM_DELTA,
+  WAVE_SPEED_DIVISOR,
+  PRESSURE_SPRING,
+  VELOCITY_DAMPING,
+  PRESSURE_DECAY,
+  MOUSE_RADIUS,
+  MOUSE_STRENGTH,
+  REFRACTION_STRENGTH,
+  NORMAL_FLATNESS,
+  LIGHT_DIR,
+  SPECULAR_POWER,
+  SPECULAR_INTENSITY,
+} from "../constants/ripple";
 
 const vertexShader = `
   varying vec2 vUv;
@@ -19,8 +34,13 @@ const simulationFragmentShader = `
   uniform vec2 uResolution;
   uniform vec3 uMouse;
   uniform int uFrame;
-
-  const float delta = 1.0;
+  uniform float uDelta;
+  uniform float uWaveSpeedDiv;
+  uniform float uPressureSpring;
+  uniform float uVelocityDamping;
+  uniform float uPressureDecay;
+  uniform float uMouseRadius;
+  uniform float uMouseStrength;
 
   void main() {
     if (uFrame == 0) {
@@ -44,17 +64,17 @@ const simulationFragmentShader = `
     if (vUv.y <= texel.y) p_down = p_up;
     if (vUv.y >= 1.0 - texel.y) p_up = p_down;
 
-    pVel += delta * (-2.0 * pressure + p_right + p_left) / 4.0;
-    pVel += delta * (-2.0 * pressure + p_up + p_down) / 4.0;
-    pressure += delta * pVel;
-    pVel -= 0.009 * delta * pressure;
-    pVel *= 1.0 - 0.004 * delta;
-    pressure *= 0.998;
+    pVel += uDelta * (-2.0 * pressure + p_right + p_left) / uWaveSpeedDiv;
+    pVel += uDelta * (-2.0 * pressure + p_up + p_down) / uWaveSpeedDiv;
+    pressure += uDelta * pVel;
+    pVel -= uPressureSpring * uDelta * pressure;
+    pVel *= 1.0 - uVelocityDamping * uDelta;
+    pressure *= uPressureDecay;
 
     if (uMouse.z > 0.0) {
       float dist = distance(fragCoord, uMouse.xy);
-      if (dist <= 60.0) {
-        pressure += 1.5 * (1.0 - dist / 60.0);
+      if (dist <= uMouseRadius) {
+        pressure += uMouseStrength * (1.0 - dist / uMouseRadius);
       }
     }
 
@@ -67,17 +87,22 @@ const renderFragmentShader = `
   uniform sampler2D uTexture;
   uniform sampler2D uBackground;
   uniform vec2 uResolution;
+  uniform float uRefractionStrength;
+  uniform float uNormalFlatness;
+  uniform vec3 uLightDir;
+  uniform float uSpecularPower;
+  uniform float uSpecularIntensity;
 
   void main() {
     vec4 data = texture2D(uTexture, vUv);
 
-    vec2 displacedUv = vUv + 0.2 * data.zw;
+    vec2 displacedUv = vUv + uRefractionStrength * data.zw;
 
     vec4 color = texture2D(uBackground, displacedUv);
 
-    vec3 normal = normalize(vec3(-data.z, 0.2, -data.w));
-    float specular = pow(max(0.0, dot(normal, normalize(vec3(-3.0, 10.0, 3.0)))), 60.0);
-    color += vec4(1.0) * specular * 0.5;
+    vec3 normal = normalize(vec3(-data.z, uNormalFlatness, -data.w));
+    float specular = pow(max(0.0, dot(normal, normalize(uLightDir))), uSpecularPower);
+    color += vec4(1.0) * specular * uSpecularIntensity;
 
     gl_FragColor = color;
   }
@@ -158,6 +183,29 @@ function drawCards(
 export default function RippleEffect() {
   const { gl, size } = useThree();
 
+  const sim = useControls("Simulation", {
+    delta: { value: SIM_DELTA, min: 0.1, max: 5.0, step: 0.1 },
+    waveSpeedDivisor: { value: WAVE_SPEED_DIVISOR, min: 1.0, max: 20.0, step: 0.5 },
+    pressureSpring: { value: PRESSURE_SPRING, min: 0.0, max: 0.1, step: 0.001 },
+    velocityDamping: { value: VELOCITY_DAMPING, min: 0.0, max: 0.05, step: 0.001 },
+    pressureDecay: { value: PRESSURE_DECAY, min: 0.9, max: 1.0, step: 0.001 },
+  });
+
+  const mouse = useControls("Mouse", {
+    radius: { value: MOUSE_RADIUS, min: 5, max: 200, step: 1 },
+    strength: { value: MOUSE_STRENGTH, min: 0.1, max: 10.0, step: 0.1 },
+  });
+
+  const render = useControls("Rendering", {
+    refractionStrength: { value: REFRACTION_STRENGTH, min: 0.0, max: 1.0, step: 0.01 },
+    normalFlatness: { value: NORMAL_FLATNESS, min: 0.01, max: 2.0, step: 0.01 },
+    lightX: { value: LIGHT_DIR[0], min: -20, max: 20, step: 0.5 },
+    lightY: { value: LIGHT_DIR[1], min: -20, max: 20, step: 0.5 },
+    lightZ: { value: LIGHT_DIR[2], min: -20, max: 20, step: 0.5 },
+    specularPower: { value: SPECULAR_POWER, min: 1, max: 200, step: 1 },
+    specularIntensity: { value: SPECULAR_INTENSITY, min: 0.0, max: 2.0, step: 0.05 },
+  });
+
   const bgCanvas = useMemo(() => {
     const canvas = document.createElement("canvas");
     canvas.width = size.width * 2;
@@ -227,6 +275,13 @@ export default function RippleEffect() {
       uResolution: { value: new THREE.Vector2() },
       uMouse: { value: new THREE.Vector3() },
       uFrame: { value: 0 },
+      uDelta: { value: SIM_DELTA },
+      uWaveSpeedDiv: { value: WAVE_SPEED_DIVISOR },
+      uPressureSpring: { value: PRESSURE_SPRING },
+      uVelocityDamping: { value: VELOCITY_DAMPING },
+      uPressureDecay: { value: PRESSURE_DECAY },
+      uMouseRadius: { value: MOUSE_RADIUS },
+      uMouseStrength: { value: MOUSE_STRENGTH },
     }),
     []
   );
@@ -236,6 +291,11 @@ export default function RippleEffect() {
       uTexture: { value: null as THREE.Texture | null },
       uBackground: { value: backgroundTexture },
       uResolution: { value: new THREE.Vector2() },
+      uRefractionStrength: { value: REFRACTION_STRENGTH },
+      uNormalFlatness: { value: NORMAL_FLATNESS },
+      uLightDir: { value: new THREE.Vector3(...LIGHT_DIR) },
+      uSpecularPower: { value: SPECULAR_POWER },
+      uSpecularIntensity: { value: SPECULAR_INTENSITY },
     }),
     [backgroundTexture]
   );
@@ -270,6 +330,22 @@ export default function RippleEffect() {
     if (!simMatRef.current || !renderMatRef.current) return;
 
     const simMat = simMatRef.current;
+
+    // Push leva values into simulation uniforms
+    simMat.uniforms.uDelta.value = sim.delta;
+    simMat.uniforms.uWaveSpeedDiv.value = sim.waveSpeedDivisor;
+    simMat.uniforms.uPressureSpring.value = sim.pressureSpring;
+    simMat.uniforms.uVelocityDamping.value = sim.velocityDamping;
+    simMat.uniforms.uPressureDecay.value = sim.pressureDecay;
+    simMat.uniforms.uMouseRadius.value = mouse.radius;
+    simMat.uniforms.uMouseStrength.value = mouse.strength;
+
+    // Push leva values into render uniforms
+    renderMatRef.current.uniforms.uRefractionStrength.value = render.refractionStrength;
+    renderMatRef.current.uniforms.uNormalFlatness.value = render.normalFlatness;
+    renderMatRef.current.uniforms.uLightDir.value.set(render.lightX, render.lightY, render.lightZ);
+    renderMatRef.current.uniforms.uSpecularPower.value = render.specularPower;
+    renderMatRef.current.uniforms.uSpecularIntensity.value = render.specularIntensity;
 
     simMat.uniforms.uFrame.value = frameId.current;
     simMat.uniforms.uResolution.value.set(size.width, size.height);
